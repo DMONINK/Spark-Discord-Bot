@@ -1,4 +1,4 @@
-# ⚡ Spark Bot
+# ⚡ Spark Bot 2.0
 
 > **Social matchmaking for Discord servers** — connecting members who share interests so they actually talk to each other.
 
@@ -234,4 +234,3 @@ MIT — use freely, attribution appreciated.
 
 ---
 
-*Built with ❤️ and discord.py · ⚡ Spark Bot v1.0.0*
