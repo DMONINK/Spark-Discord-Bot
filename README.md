@@ -19,26 +19,9 @@ Spark uses interest-based matchmaking, automated daily pairings, streaks, leader
 
 ---
 
-## 🚀 Setup on Replit
+## 🚀 Setup
 
-### 1. Fork the Repl
-
-1. Go to [replit.com](https://replit.com) and click **+ Create Repl**
-2. Choose **Import from GitHub** (or paste the project files manually)
-3. Select **Python** as the language
-4. Name it `spark-bot`
-
-### 2. Add Your Bot Token
-
-1. In your Replit project, click the **🔒 Secrets** tab (padlock icon in the left sidebar)
-2. Click **+ New Secret**
-3. Key: `DISCORD_TOKEN`
-4. Value: Your Discord bot token (see below for how to create one)
-5. Click **Add Secret**
-
-> **Local development:** Copy `.env.example` to `.env` and add your token there.
-
-### 3. Create a Discord Application & Bot
+### 1. Create a Discord Application & Bot
 
 1. Go to [discord.com/developers/applications](https://discord.com/developers/applications)
 2. Click **New Application** → name it `Spark`
@@ -50,7 +33,7 @@ Spark uses interest-based matchmaking, automated daily pairings, streaks, leader
    - **Message Content Intent**
 6. Click **Save Changes**
 
-### 4. Invite the Bot to Your Server
+### 2. Invite the Bot to Your Server
 
 Use this URL (replace `YOUR_CLIENT_ID` with your application's Client ID from the **General Information** tab):
 
@@ -68,35 +51,28 @@ https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=8&
 
 > Using `permissions=8` (Administrator) is the easiest during setup. Tighten permissions in production.
 
-### 5. Run the Bot
+### 3. 🛠 Local Development
 
-In Replit, click the **▶ Run** button. You should see:
+```bash
+# Clone or download the project
+cd spark-bot
 
-```
-⚡  Spark Bot is online!
-User : Spark#1234 (123456789)
-Guilds: 1
+# Create a virtual environment
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy and fill in your token
+cp .env.example .env
+# Edit .env and add your DISCORD_TOKEN
+
+# Run the bot
+python main.py
 ```
 
 Slash commands may take up to **1 hour** to propagate globally. For instant sync during development, use guild-specific sync (see advanced config below).
-
----
-
-## 🕐 Keeping the Bot Alive (UptimeRobot)
-
-Replit free-tier Repls sleep after inactivity. Spark includes a lightweight Flask server on **port 8080** to prevent this.
-
-### Set up UptimeRobot
-
-1. Sign up at [uptimerobot.com](https://uptimerobot.com) (free)
-2. Click **+ Add New Monitor**
-3. Monitor Type: **HTTP(s)**
-4. Friendly Name: `Spark Bot`
-5. URL: `https://YOUR-REPL-NAME.YOUR-USERNAME.repl.co` (copy from the Replit webview)
-6. Monitoring Interval: **5 minutes**
-7. Click **Create Monitor**
-
-UptimeRobot will ping your bot every 5 minutes, keeping it awake.
 
 ---
 
@@ -201,29 +177,6 @@ spark-bot/
     ├── matching.py  ← /match, /group, /rate + APScheduler job
     ├── social.py    ← /leaderboard, /stats, /help
     └── admin.py     ← /setup, /admin_stats, /force_pair
-```
-
----
-
-## 🛠 Local Development
-
-```bash
-# Clone or download the project
-cd spark-bot
-
-# Create a virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Copy and fill in your token
-cp .env.example .env
-# Edit .env and add your DISCORD_TOKEN
-
-# Run the bot
-python main.py
 ```
 
 ---
