@@ -1,405 +1,303 @@
 """
-Spark Bot - Admin Cog
-Handles: /spark setup, weekly auto-pairing with APScheduler
+cogs/admin.py
+Admin-only commands for Spark Bot:
+  /spark setup       – configure channel and admin role
+  /spark admin_stats – detailed admin view of server stats
+  /spark force_pair  – manually trigger the auto-pairing job
 """
 
-import discord
-from discord.ext import commands
-from discord import app_commands
 import logging
-import json
-import random
-import asyncio
-from datetime import datetime, timedelta
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from database import Database
+from datetime import datetime, timezone
 
-logger = logging.getLogger(__name__)
+import discord
+from discord import app_commands
+from discord.ext import commands
 
-# Color palette
-COLORS = {
-    'info': 0x7289DA,      # Discord blurple
-    'success': 0x43B581,   # Green
-    'warning': 0xFAA61A,   # Yellow
-    'error': 0xF04747      # Red
-}
+import database as db
 
-# Ice-breaker questions
-ICE_BREAKERS = [
-    "What's the last thing you got genuinely excited about?",
-    "If you could master any skill overnight, what would it be?",
-    "What's your most controversial opinion about your shared interests?",
-    "What's something you're working on right now?",
-    "What's the best thing you've discovered in the last month?",
-    "Would you rather A or B related to your shared interests?",
-    "What's your hot take that nobody agrees with?",
-    "What's something you used to love but grew out of?",
-    "What are you currently obsessed with?",
-    "What's a skill or hobby you wish more people knew about you?"
-]
+log = logging.getLogger(__name__)
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+COLOR_INFO    = 0x7289DA
+COLOR_SUCCESS = 0x43B581
+COLOR_WARN    = 0xFAA61A
+COLOR_ERROR   = 0xF04747
+FOOTER_TEXT   = "⚡ Spark Bot"
 
 
-class Admin(commands.Cog):
-    """Admin and scheduling commands"""
-
-    def __init__(self, bot: commands.Bot):
-        self.bot = bot
-        self.db = Database()
-        self.scheduler = AsyncIOScheduler()
-
-    async def cog_load(self):
-        """Initialize scheduler when cog loads"""
-        logger.info("Admin cog loading...")
-        
-        # Start scheduler
-        if not self.scheduler.running:
-            self.scheduler.start()
-            logger.info("APScheduler started")
-
-        # Add jobs for auto-pairing
-        await self.schedule_daily_pairings()
-
-    async def cog_unload(self):
-        """Clean up scheduler when cog unloads"""
-        if self.scheduler.running:
-            self.scheduler.shutdown()
-            logger.info("APScheduler shut down")
-
-    async def schedule_daily_pairings(self):
-        """Schedule daily auto-pairing job for all guilds"""
-        try:
-            # Get all guilds the bot is in
-            for guild in self.bot.guilds:
-                guild_id = str(guild.id)
-
-                # Get server config
-                config = await self.db.get_server_config(guild_id)
-
-                if not config:
-                    # Skip if no config set up
-                    continue
-
-                # Parse schedule
-                hour = config.get('pairing_hour', 9)
-                day = config.get('pairing_day', 'monday')
-
-                # Schedule job
-                job_id = f"daily_pair_{guild_id}"
-
-                # Remove existing job if it exists
-                try:
-                    self.scheduler.remove_job(job_id)
-                except:
-                    pass
-
-                # Add new job
-                self.scheduler.add_job(
-                    self.run_daily_pairing,
-                    'cron',
-                    day_of_week=self.day_to_cron(day),
-                    hour=hour,
-                    minute=0,
-                    id=job_id,
-                    args=[guild_id]
-                )
-
-                logger.info(f"Scheduled daily pairing for guild {guild_id} at {day} {hour}:00")
-
-        except Exception as e:
-            logger.error(f"Error scheduling daily pairings: {e}")
-
-    def day_to_cron(self, day: str) -> str:
-        """Convert day name to cron format"""
-        days = {
-            'monday': 'mon',
-            'tuesday': 'tue',
-            'wednesday': 'wed',
-            'thursday': 'thu',
-            'friday': 'fri',
-            'saturday': 'sat',
-            'sunday': 'sun'
-        }
-        return days.get(day.lower(), 'mon')
-
-    def calculate_match_score(self, interests1: list, interests2: list) -> float:
-        """Calculate match score between two users"""
-        if not interests1 or not interests2:
-            return 0.0
-
-        shared = len(set(interests1) & set(interests2))
-        max_possible = max(len(interests1), len(interests2))
-
-        if max_possible == 0:
-            return 0.0
-
-        return (shared / max_possible) * 100
-
-    async def run_daily_pairing(self, guild_id: str):
-        """Run daily pairing algorithm"""
-        try:
-            logger.info(f"Running daily pairing for guild {guild_id}")
-
-            guild = self.bot.get_guild(int(guild_id))
-            if not guild:
-                logger.error(f"Guild {guild_id} not found")
-                return
-
-            # Get config
-            config = await self.db.get_server_config(guild_id)
-            if not config or not config.get('pairing_channel_id'):
-                logger.warning(f"No pairing channel configured for guild {guild_id}")
-                return
-
-            # Get all opt-in members
-            members = await self.db.get_guild_members(guild_id, opt_in_only=True)
-
-            if len(members) < 2:
-                logger.warning(f"Not enough members for pairing in guild {guild_id}")
-                return
-
-            # Sort by activity (you could enhance this)
-            # For now, just take top 100 most active or all if less
-            members = members[:100]
-
-            # Build match candidates
-            pairings_to_make = []
-            used_members = set()
-
-            # Greedy matching algorithm
-            for i, user1 in enumerate(members):
-                if user1['user_id'] in used_members:
-                    continue
-
-                best_match = None
-                best_score = -1
-
-                for user2 in members[i+1:]:
-                    if user2['user_id'] in used_members:
-                        continue
-
-                    # Check recent pairing history
-                    recent = await self.db.get_recent_pairings(
-                        user1['user_id'],
-                        user2['user_id'],
-                        days=28
-                    )
-
-                    if recent:
-                        continue
-
-                    # Calculate score
-                    interests1 = json.loads(user1['interests'] or '[]')
-                    interests2 = json.loads(user2['interests'] or '[]')
-                    score = self.calculate_match_score(interests1, interests2)
-
-                    if score > best_score:
-                        best_score = score
-                        best_match = user2
-
-                if best_match and best_score > 0:
-                    pairings_to_make.append((user1, best_match, best_score))
-                    used_members.add(user1['user_id'])
-                    used_members.add(best_match['user_id'])
-
-            # Execute pairings
-            matched_count = 0
-
-            for user1, user2, score in pairings_to_make:
-                try:
-                    # Create pairing record
-                    pairing_id = await self.db.create_pairing(
-                        guild_id,
-                        user1['user_id'],
-                        user2['user_id'],
-                        score
-                    )
-
-                    if pairing_id:
-                        # Update match counts
-                        await self.db.increment_match_count(user1['user_id'])
-                        await self.db.increment_match_count(user2['user_id'])
-
-                        # Send DMs
-                        await self.send_pairing_dm(user1, user2, score)
-
-                        matched_count += 1
-
-                except Exception as e:
-                    logger.error(f"Error in pairing {user1['user_id']} and {user2['user_id']}: {e}")
-
-            # Send unmatched consolation messages
-            unmatched = [m for m in members if m['user_id'] not in used_members]
-            for member in unmatched:
-                try:
-                    user_obj = await self.bot.fetch_user(int(member['user_id']))
-                    embed = discord.Embed(
-                        title="⚡ No Match This Week",
-                        description="Don't worry! Use `/spark match` anytime to find your person.",
-                        color=COLORS['info'],
-                        timestamp=discord.utils.utcnow()
-                    )
-                    embed.set_footer(text="⚡ Spark Bot")
-                    await user_obj.send(embed=embed)
-                except Exception as e:
-                    logger.error(f"Error sending consolation message: {e}")
-
-            # Announce in pairing channel
-            try:
-                channel = guild.get_channel(int(config['pairing_channel_id']))
-                if channel:
-                    announce_embed = discord.Embed(
-                        title="🎉 Weekly Pairing Complete!",
-                        description=f"This week, **{matched_count}** members were matched!",
-                        color=COLORS['success'],
-                        timestamp=discord.utils.utcnow()
-                    )
-                    announce_embed.add_field(
-                        name="👥 Unmatched Members",
-                        value=f"{len(unmatched)} members - use `/spark match` anytime",
-                        inline=False
-                    )
-                    announce_embed.set_footer(text="⚡ Spark Bot")
-                    await channel.send(embed=announce_embed)
-            except Exception as e:
-                logger.error(f"Error announcing pairings: {e}")
-
-            logger.info(f"Daily pairing complete for guild {guild_id}: {matched_count} matches")
-
-        except Exception as e:
-            logger.error(f"Error in run_daily_pairing: {e}")
-
-    async def send_pairing_dm(self, user1: dict, user2: dict, score: float):
-        """Send pairing DMs to both users"""
-        try:
-            interests1 = json.loads(user1['interests'] or '[]')
-            interests2 = json.loads(user2['interests'] or '[]')
-            shared_interests = list(set(interests1) & set(interests2))
-
-            ice_breaker = random.choice(ICE_BREAKERS)
-
-            # Get Discord user objects
-            try:
-                disc_user1 = await self.bot.fetch_user(int(user1['user_id']))
-                disc_user2 = await self.bot.fetch_user(int(user2['user_id']))
-            except discord.NotFound:
-                logger.error("One or both users not found for DM")
-                return
-
-            # Embed for user1
-            embed1 = discord.Embed(
-                title="⚡ Weekly Spark Match!",
-                description=f"Meet {user2['display_name']}!",
-                color=COLORS['success'],
-                timestamp=discord.utils.utcnow()
-            )
-            embed1.add_field(name="👤 Bio", value=user2['bio'] or "No bio set", inline=False)
-            embed1.add_field(
-                name="🎮 Shared Interests",
-                value=", ".join(shared_interests[:3]) if shared_interests else "Check out their profile!",
-                inline=False
-            )
-            embed1.add_field(name="💡 Compatibility", value=f"{score:.1f}%", inline=True)
-            embed1.add_field(name="❄️ Ice-breaker", value=ice_breaker, inline=False)
-            embed1.set_footer(text="⚡ Spark Bot")
-
-            # Embed for user2
-            embed2 = discord.Embed(
-                title="⚡ Weekly Spark Match!",
-                description=f"Meet {user1['display_name']}!",
-                color=COLORS['success'],
-                timestamp=discord.utils.utcnow()
-            )
-            embed2.add_field(name="👤 Bio", value=user1['bio'] or "No bio set", inline=False)
-            embed2.add_field(
-                name="🎮 Shared Interests",
-                value=", ".join(shared_interests[:3]) if shared_interests else "Check out their profile!",
-                inline=False
-            )
-            embed2.add_field(name="💡 Compatibility", value=f"{score:.1f}%", inline=True)
-            embed2.add_field(name="❄️ Ice-breaker", value=ice_breaker, inline=False)
-            embed2.set_footer(text="⚡ Spark Bot")
-
-            await disc_user1.send(embed=embed1)
-            await disc_user2.send(embed=embed2)
-
-        except Exception as e:
-            logger.error(f"Error sending pairing DM: {e}")
-
-    @app_commands.command(name="setup", description="Set up Spark for your server (admin only)")
-    @app_commands.describe(
-        channel="Announcement channel for pairing updates",
-        admin_role="Role required to use admin commands"
+def _spark_embed(title: str, description: str, color: int = COLOR_INFO) -> discord.Embed:
+    """Factory for a standardised Spark embed."""
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=color,
+        timestamp=datetime.now(timezone.utc),
     )
-    async def setup(self, interaction: discord.Interaction, channel: discord.TextChannel, admin_role: discord.Role):
-        """Set up server configuration"""
+    embed.set_footer(text=FOOTER_TEXT)
+    return embed
+
+
+def _is_admin(interaction: discord.Interaction) -> bool:
+    """
+    Return True if the caller has Administrator permission OR
+    holds the configured admin role for this guild.
+    """
+    if interaction.user.guild_permissions.administrator:
+        return True
+    # Will be checked async against DB if needed; basic check suffices here
+    return False
+
+
+async def _is_spark_admin(interaction: discord.Interaction) -> bool:
+    """
+    Async check: True if user has Administrator perm OR holds the
+    configured admin_role_id for the guild.
+    """
+    if interaction.user.guild_permissions.administrator:
+        return True
+    config = await db.get_server_config(str(interaction.guild_id))
+    if config and config.get("admin_role_id"):
+        role = interaction.guild.get_role(int(config["admin_role_id"]))
+        if role and role in interaction.user.roles:
+            return True
+    return False
+
+
+# ── Cog ───────────────────────────────────────────────────────────────────────
+
+class AdminCog(commands.Cog, name="Admin"):
+    """Admin configuration and management commands for Spark Bot."""
+
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot = bot
+
+    async def cog_load(self) -> None:
+        """Called when the cog is loaded."""
+        log.info("AdminCog loaded.")
+
+    # /spark setup ─────────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="setup",
+        description="[Admin] Configure Spark Bot for this server.",
+    )
+    @app_commands.describe(
+        channel="The channel where pairing announcements will be posted",
+        admin_role="The role that can manage Spark Bot settings",
+    )
+    async def setup(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel,
+        admin_role: discord.Role,
+    ) -> None:
+        """
+        Admin-only setup command. Stores the pairing announcement channel
+        and the admin role in server_config.
+        """
+        await interaction.response.defer(ephemeral=True)
         try:
-            # Check if user is admin
-            if not interaction.user.guild_permissions.administrator:
-                embed = discord.Embed(
-                    title="❌ Admin Required",
-                    description="Only server administrators can run this command.",
-                    color=COLORS['error'],
-                    timestamp=discord.utils.utcnow()
+            # Permission check
+            if not await _is_spark_admin(interaction):
+                await interaction.followup.send(
+                    embed=_spark_embed(
+                        "🔒 Access Denied",
+                        "You need **Administrator** permission or the Spark admin role to run this command.",
+                        color=COLOR_ERROR,
+                    ),
+                    ephemeral=True,
                 )
-                embed.set_footer(text="⚡ Spark Bot")
-                await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
 
-            guild_id = str(interaction.guild.id)
-
-            # Set server config
-            success = await self.db.set_server_config(
-                guild_id,
+            await db.upsert_server_config(
+                guild_id=str(interaction.guild_id),
                 pairing_channel_id=str(channel.id),
-                pairing_day='monday',
-                pairing_hour=9,
-                admin_role_id=str(admin_role.id)
+                admin_role_id=str(admin_role.id),
             )
 
-            if success:
-                # Re-schedule jobs
-                await self.schedule_daily_pairings()
+            # Verify bot can send in that channel
+            bot_member = interaction.guild.get_member(self.bot.user.id)
+            perms = channel.permissions_for(bot_member)
+            warning = ""
+            if not perms.send_messages or not perms.embed_links:
+                warning = (
+                    "\n\n⚠️ **Warning:** I may not have permission to send embeds in "
+                    f"{channel.mention}. Please check my channel permissions."
+                )
 
-                embed = discord.Embed(
-                    title="✅ Spark Configured!",
-                    description=f"Server setup complete for {interaction.guild.name}",
-                    color=COLORS['success'],
-                    timestamp=discord.utils.utcnow()
+            embed = _spark_embed(
+                "✅ Spark Bot Configured!",
+                f"**Pairing Channel:** {channel.mention}\n"
+                f"**Admin Role:** {admin_role.mention}\n\n"
+                f"Daily pairings will be announced in {channel.mention} at **9:00 AM IST**.\n"
+                f"Use `/spark help` to see all available commands.{warning}",
+                color=COLOR_SUCCESS,
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+            # Send a welcome message to the pairing channel
+            try:
+                welcome = _spark_embed(
+                    "⚡ Spark Bot is Ready!",
+                    "This is now the official Spark pairing channel! 🎉\n\n"
+                    "Members can use `/spark interests` to set their interests "
+                    "and `/spark match` to start connecting.\n"
+                    "Daily pairings run at **9:00 AM IST** automatically.",
+                    color=COLOR_SUCCESS,
                 )
-                embed.add_field(name="📢 Announcement Channel", value=channel.mention, inline=True)
-                embed.add_field(name="🔐 Admin Role", value=admin_role.mention, inline=True)
-                embed.add_field(
-                    name="📅 Pairing Schedule",
-                    value="Every Monday at 9:00 AM GMT+5:30",
-                    inline=False
+                await channel.send(embed=welcome)
+            except discord.Forbidden:
+                log.warning("Cannot post welcome in channel %s.", channel.id)
+
+            log.info(
+                "Guild %s configured: channel=%s, admin_role=%s",
+                interaction.guild_id, channel.id, admin_role.id,
+            )
+        except Exception as exc:
+            log.exception("Error in /spark setup for guild %s: %s", interaction.guild_id, exc)
+            await interaction.followup.send(
+                embed=_spark_embed("⚠️ Error", "Something sparked out — try again!", color=COLOR_ERROR),
+                ephemeral=True,
+            )
+
+    # /spark admin_stats ───────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="admin_stats",
+        description="[Admin] View detailed server stats.",
+    )
+    async def admin_stats(self, interaction: discord.Interaction) -> None:
+        """
+        Admin-only command. Displays detailed statistics about the Spark
+        installation on this server.
+        """
+        await interaction.response.defer(ephemeral=True)
+        try:
+            if not await _is_spark_admin(interaction):
+                await interaction.followup.send(
+                    embed=_spark_embed(
+                        "🔒 Access Denied",
+                        "You need **Administrator** permission or the Spark admin role.",
+                        color=COLOR_ERROR,
+                    ),
+                    ephemeral=True,
                 )
-                embed.add_field(
-                    name="🚀 Next Steps",
-                    value="1. Users run `/spark interests`\n2. Users run `/spark match` to start connecting\n3. Weekly auto-pairing happens every Monday!",
-                    inline=False
+                return
+
+            data = await db.get_server_stats(str(interaction.guild_id))
+            config = await db.get_server_config(str(interaction.guild_id))
+
+            channel_mention = "Not configured"
+            if config and config.get("pairing_channel_id"):
+                ch = interaction.guild.get_channel(int(config["pairing_channel_id"]))
+                channel_mention = ch.mention if ch else f"ID {config['pairing_channel_id']}"
+
+            admin_role_name = "Not configured"
+            if config and config.get("admin_role_id"):
+                role = interaction.guild.get_role(int(config["admin_role_id"]))
+                admin_role_name = role.mention if role else f"ID {config['admin_role_id']}"
+
+            embed = _spark_embed(
+                "🔧 Spark Admin Stats",
+                f"Detailed overview for **{interaction.guild.name}**",
+                color=COLOR_INFO,
+            )
+
+            embed.add_field(name="⚙️ Pairing Channel", value=channel_mention, inline=True)
+            embed.add_field(name="🔑 Admin Role", value=admin_role_name, inline=True)
+            embed.add_field(name="⏰ Pairing Schedule", value="Daily at 9:00 AM IST", inline=True)
+
+            embed.add_field(name="👥 Registered Members", value=str(data["total_members"]), inline=True)
+            embed.add_field(name="🤝 Total Pairings", value=str(data["total_pairings"]), inline=True)
+            embed.add_field(name="💯 Avg Match Score", value=f"{data['avg_match_score']}%", inline=True)
+            embed.add_field(name="🔥 Top Interest", value=data["most_popular_interest"], inline=True)
+
+            # Full interest tally
+            tally: dict[str, int] = data.get("interest_tally", {})
+            if tally:
+                sorted_interests = sorted(tally.items(), key=lambda x: x[1], reverse=True)
+                tally_lines = "\n".join(
+                    f"`{count:>3}` {interest}" for interest, count in sorted_interests
                 )
-                embed.set_footer(text="⚡ Spark Bot")
-                await interaction.response.send_message(embed=embed, ephemeral=True)
+                embed.add_field(name="📊 All Interests", value=tally_lines[:1024], inline=False)
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as exc:
+            log.exception("Error in /spark admin_stats for guild %s: %s", interaction.guild_id, exc)
+            await interaction.followup.send(
+                embed=_spark_embed("⚠️ Error", "Something sparked out — try again!", color=COLOR_ERROR),
+                ephemeral=True,
+            )
+
+    # /spark force_pair ────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="force_pair",
+        description="[Admin] Manually trigger the auto-pairing job right now.",
+    )
+    async def force_pair(self, interaction: discord.Interaction) -> None:
+        """
+        Admin-only command. Immediately runs the auto-pairing algorithm
+        for this guild without waiting for the scheduled time.
+        """
+        await interaction.response.defer(ephemeral=True)
+        try:
+            if not await _is_spark_admin(interaction):
+                await interaction.followup.send(
+                    embed=_spark_embed(
+                        "🔒 Access Denied",
+                        "You need **Administrator** permission or the Spark admin role.",
+                        color=COLOR_ERROR,
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            config = await db.get_server_config(str(interaction.guild_id))
+            if not config or not config.get("pairing_channel_id"):
+                await interaction.followup.send(
+                    embed=_spark_embed(
+                        "⚙️ Setup Required",
+                        "Please run `/spark setup` before triggering pairings.",
+                        color=COLOR_WARN,
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            await interaction.followup.send(
+                embed=_spark_embed(
+                    "⚡ Pairing Job Started",
+                    "Running auto-pairing now… check the pairing channel shortly!",
+                    color=COLOR_INFO,
+                ),
+                ephemeral=True,
+            )
+
+            # Access the matching cog's method
+            matching_cog = self.bot.cogs.get("Matching")
+            if matching_cog:
+                await matching_cog._auto_pair_guild(interaction.guild)
             else:
-                await interaction.response.send_message(
-                    "❌ Something sparked out — try again!",
-                    ephemeral=True
+                await interaction.followup.send(
+                    embed=_spark_embed(
+                        "⚠️ Error",
+                        "Matching cog is not loaded. Please restart the bot.",
+                        color=COLOR_ERROR,
+                    ),
+                    ephemeral=True,
                 )
+                return
 
-        except Exception as e:
-            logger.error(f"Error in setup command: {e}")
-            await interaction.response.send_message(
-                "❌ Something sparked out — try again!",
-                ephemeral=True
+            log.info("Admin %s triggered manual pairing for guild %s.", interaction.user.id, interaction.guild_id)
+        except Exception as exc:
+            log.exception("Error in /spark force_pair for guild %s: %s", interaction.guild_id, exc)
+            await interaction.followup.send(
+                embed=_spark_embed("⚠️ Error", "Something sparked out — try again!", color=COLOR_ERROR),
+                ephemeral=True,
             )
 
 
-async def setup(bot: commands.Bot):
-    """Load cog"""
-    cog = Admin(bot)
-    await bot.add_cog(cog)
-    
-    # Run cog_load
-    await cog.cog_load()
-    
-    logger.info("Admin cog loaded")
+async def setup(bot: commands.Bot) -> None:
+    """Register the AdminCog with the bot."""
+    await bot.add_cog(AdminCog(bot))

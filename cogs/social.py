@@ -1,210 +1,259 @@
 """
-Spark Bot - Social Cog
-Handles: /spark leaderboard, /spark stats, /spark help
+cogs/social.py
+Social and discovery commands for Spark Bot:
+  /spark leaderboard – top 10 most-connected members
+  /spark stats       – server-wide stats
+  /spark help        – all commands overview
 """
 
-import discord
-from discord.ext import commands
-from discord import app_commands
 import logging
-import json
-from database import Database
+from datetime import datetime, timezone
 
-logger = logging.getLogger(__name__)
+import discord
+from discord import app_commands
+from discord.ext import commands
 
-# Color palette
-COLORS = {
-    'info': 0x7289DA,      # Discord blurple
-    'success': 0x43B581,   # Green
-    'warning': 0xFAA61A,   # Yellow
-    'error': 0xF04747      # Red
-}
+import database as db
+
+log = logging.getLogger(__name__)
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+COLOR_INFO    = 0x7289DA
+COLOR_SUCCESS = 0x43B581
+COLOR_WARN    = 0xFAA61A
+COLOR_ERROR   = 0xF04747
+FOOTER_TEXT   = "⚡ Spark Bot"
+
+RANK_MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 
 
-class Social(commands.Cog):
-    """Social and stats commands"""
+def _spark_embed(title: str, description: str, color: int = COLOR_INFO) -> discord.Embed:
+    """Factory for a standardised Spark embed."""
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=color,
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.set_footer(text=FOOTER_TEXT)
+    return embed
 
-    def __init__(self, bot: commands.Bot):
+
+# ── Cog ───────────────────────────────────────────────────────────────────────
+
+class SocialCog(commands.Cog, name="Social"):
+    """Social and discovery commands for Spark Bot."""
+
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.db = Database()
 
-    @app_commands.command(name="leaderboard", description="View top connected members")
-    async def leaderboard(self, interaction: discord.Interaction):
-        """Show top members by match count"""
+    async def cog_load(self) -> None:
+        """Called when the cog is loaded."""
+        log.info("SocialCog loaded.")
+
+    # /spark leaderboard ───────────────────────────────────────────────────────
+
+    @app_commands.command(name="leaderboard", description="See the top 10 most-connected members.")
+    async def leaderboard(self, interaction: discord.Interaction) -> None:
+        """
+        Display a ranked embed of the top 10 members by total_matches.
+        Includes rank medal, display name, match count, and streak.
+        """
+        await interaction.response.defer()
         try:
-            guild_id = str(interaction.guild.id)
+            top = await db.get_leaderboard(str(interaction.guild_id), limit=10)
 
-            top_members = await self.db.get_top_members(guild_id, limit=10)
-
-            if not top_members:
-                embed = discord.Embed(
-                    title="🏆 Leaderboard",
-                    description="No members yet! Use `/spark match` to start connecting.",
-                    color=COLORS['info'],
-                    timestamp=discord.utils.utcnow()
+            if not top:
+                await interaction.followup.send(
+                    embed=_spark_embed(
+                        "📊 Leaderboard",
+                        "No members on the board yet — be the first to `/spark match`!",
+                        color=COLOR_WARN,
+                    )
                 )
-                embed.set_footer(text="⚡ Spark Bot")
-                await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
 
-            embed = discord.Embed(
-                title="🏆 Spark Leaderboard",
-                description="Most Connected Members",
-                color=COLORS['info'],
-                timestamp=discord.utils.utcnow()
+            embed = _spark_embed(
+                "🏆 Spark Leaderboard — Top Connectors",
+                "The most connected members in the server:",
+                color=COLOR_INFO,
             )
 
-            medals = ["🥇", "🥈", "🥉"]
+            lines = []
+            for rank, member in enumerate(top, start=1):
+                # Try to resolve current display name from Discord
+                discord_member = interaction.guild.get_member(int(member["user_id"]))
+                name = discord_member.display_name if discord_member else member["display_name"]
 
-            for idx, member in enumerate(top_members, 1):
-                medal = medals[idx - 1] if idx <= 3 else f"{idx}."
-
-                streak_str = f"🔥 x {member['streak']}" if member['streak'] else "No streak"
-
-                field_value = f"**Connections:** {member['total_matches']}\n**Streak:** {streak_str}"
-
-                embed.add_field(
-                    name=f"{medal} {member['display_name']}",
-                    value=field_value,
-                    inline=False
+                medal = RANK_MEDALS.get(rank, f"`{rank}.`")
+                streak_str = f"🔥×{member['streak']}" if member["streak"] > 0 else ""
+                lines.append(
+                    f"{medal} **{name}** — {member['total_matches']} matches {streak_str}"
                 )
 
-            embed.set_footer(text="⚡ Spark Bot")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-
-        except Exception as e:
-            logger.error(f"Error in leaderboard command: {e}")
-            await interaction.response.send_message(
-                "❌ Something sparked out — try again!",
-                ephemeral=True
+            embed.description = "\n".join(lines)
+            embed.add_field(
+                name="💡 Want to climb the ranks?",
+                value="Use `/spark match` to make more connections!",
+                inline=False,
             )
 
-    @app_commands.command(name="stats", description="View server-wide Spark statistics")
-    async def stats(self, interaction: discord.Interaction):
-        """Show guild statistics"""
+            await interaction.followup.send(embed=embed)
+            log.info("Leaderboard displayed for guild %s.", interaction.guild_id)
+        except Exception as exc:
+            log.exception("Error in /spark leaderboard for guild %s: %s", interaction.guild_id, exc)
+            await interaction.followup.send(
+                embed=_spark_embed("⚠️ Error", "Something sparked out — try again!", color=COLOR_ERROR)
+            )
+
+    # /spark stats ─────────────────────────────────────────────────────────────
+
+    @app_commands.command(name="stats", description="View server-wide Spark statistics.")
+    async def stats(self, interaction: discord.Interaction) -> None:
+        """
+        Display an embed with server-wide stats:
+        total registered members, total pairings, avg match score,
+        most popular interest, and top trending interests.
+        """
+        await interaction.response.defer()
         try:
-            guild_id = str(interaction.guild.id)
+            data = await db.get_server_stats(str(interaction.guild_id))
 
-            stats = await self.db.get_guild_stats(guild_id)
-
-            embed = discord.Embed(
-                title="📊 Spark Server Stats",
-                color=COLORS['info'],
-                timestamp=discord.utils.utcnow()
+            embed = _spark_embed(
+                "📊 Spark Server Stats",
+                f"Here's how **{interaction.guild.name}** is connecting!",
+                color=COLOR_INFO,
             )
 
             embed.add_field(
-                name="👥 Total Members",
-                value=str(stats['total_members']),
-                inline=True
+                name="👥 Registered Members",
+                value=str(data["total_members"]),
+                inline=True,
             )
+            embed.add_field(
+                name="🤝 Total Pairings",
+                value=str(data["total_pairings"]),
+                inline=True,
+            )
+            embed.add_field(
+                name="💯 Avg Match Score",
+                value=f"{data['avg_match_score']}%",
+                inline=True,
+            )
+            embed.add_field(
+                name="🔥 Most Popular Interest",
+                value=data["most_popular_interest"],
+                inline=True,
+            )
+
+            # Trending interests (top 5)
+            tally: dict[str, int] = data.get("interest_tally", {})
+            if tally:
+                top5 = sorted(tally.items(), key=lambda x: x[1], reverse=True)[:5]
+                trending = "\n".join(
+                    f"`{count}` members — **{interest}**"
+                    for interest, count in top5
+                )
+                embed.add_field(name="📈 Trending Interests", value=trending, inline=False)
 
             embed.add_field(
-                name="🔗 Total Pairings",
-                value=str(stats['total_pairings']),
-                inline=True
+                name="💡 Grow the community!",
+                value="Invite friends and use `/spark match` to keep the connections flowing.",
+                inline=False,
             )
 
-            embed.add_field(
-                name="💡 Avg Match Score",
-                value=f"{stats['avg_match_score']:.1f}%",
-                inline=True
+            await interaction.followup.send(embed=embed)
+            log.info("Stats displayed for guild %s.", interaction.guild_id)
+        except Exception as exc:
+            log.exception("Error in /spark stats for guild %s: %s", interaction.guild_id, exc)
+            await interaction.followup.send(
+                embed=_spark_embed("⚠️ Error", "Something sparked out — try again!", color=COLOR_ERROR)
             )
 
-            embed.add_field(
-                name="🎮 Most Popular Interest",
-                value=stats['most_popular_interest'],
-                inline=True
-            )
+    # /spark help ──────────────────────────────────────────────────────────────
 
-            embed.set_footer(text="⚡ Spark Bot")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-
-        except Exception as e:
-            logger.error(f"Error in stats command: {e}")
-            await interaction.response.send_message(
-                "❌ Something sparked out — try again!",
-                ephemeral=True
-            )
-
-    @app_commands.command(name="help", description="View all Spark commands")
-    async def help(self, interaction: discord.Interaction):
-        """Show help embed with all commands"""
+    @app_commands.command(name="help", description="See all Spark commands and what they do.")
+    async def help(self, interaction: discord.Interaction) -> None:
+        """
+        Display a colour-coded embed listing all commands grouped by category.
+        """
+        await interaction.response.defer(ephemeral=True)
         try:
-            embed = discord.Embed(
-                title="⚡ Spark Bot Commands",
-                description="Social matchmaking for your server",
-                color=COLORS['info'],
-                timestamp=discord.utils.utcnow()
-            )
-
-            # Profile Commands
-            embed.add_field(
-                name="👤 Profile Commands",
-                value=(
-                    "`/spark profile` - View your profile card\n"
-                    "`/spark interests` - Select your interests (max 6)\n"
-                    "`/spark bio [text]` - Set your bio (max 150 chars)\n"
-                    "`/spark opt [in/out]` - Toggle weekly pairing participation"
-                ),
-                inline=False
-            )
-
-            # Matching Commands
-            embed.add_field(
-                name="🎯 Matching Commands",
-                value=(
-                    "`/spark match` - Find your next connection\n"
-                    "`/spark group` - Create a group with shared interests\n"
-                    "`/spark history` - View your last 5 pairings\n"
-                    "`/spark rate [1-5]` - Rate your match experience"
-                ),
-                inline=False
-            )
-
-            # Social Commands
-            embed.add_field(
-                name="📊 Social Commands",
-                value=(
-                    "`/spark leaderboard` - Top 10 most connected members\n"
-                    "`/spark stats` - Server-wide statistics\n"
-                    "`/spark help` - Show this help message"
-                ),
-                inline=False
-            )
-
-            # Admin Commands
-            embed.add_field(
-                name="⚙️ Admin Commands",
-                value=(
-                    "`/spark setup [channel] [role]` - Set up announcements (admin only)"
-                ),
-                inline=False
+            embed = _spark_embed(
+                "⚡ Spark Bot — Command Guide",
+                "Connect with members who share your interests. Here's everything you can do:",
+                color=COLOR_INFO,
             )
 
             embed.add_field(
-                name="ℹ️ Getting Started",
+                name="👤 Profile",
                 value=(
-                    "1. Run `/spark interests` to choose what you love\n"
-                    "2. Optionally set `/spark bio` to tell others about yourself\n"
-                    "3. Use `/spark match` to find connections\n"
-                    "4. Rate matches with `/spark rate` to build your streak!"
+                    "`/spark profile` — View your profile card\n"
+                    "`/spark interests` — Set your interests (up to 6)\n"
+                    "`/spark bio [text]` — Set a short bio (max 150 chars)\n"
+                    "`/spark opt [in/out]` — Toggle weekly pairing participation\n"
+                    "`/spark history` — View your last 5 pairings"
                 ),
-                inline=False
+                inline=False,
             )
 
-            embed.set_footer(text="⚡ Spark Bot")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            embed.add_field(
+                name="🤝 Matching",
+                value=(
+                    "`/spark match` — Find your best match right now (24h cooldown)\n"
+                    "`/spark group` — Create a group of 3-5 members with shared interests\n"
+                    "`/spark rate [1-5]` — Rate your latest match experience"
+                ),
+                inline=False,
+            )
 
-        except Exception as e:
-            logger.error(f"Error in help command: {e}")
-            await interaction.response.send_message(
-                "❌ Something sparked out — try again!",
-                ephemeral=True
+            embed.add_field(
+                name="📊 Social",
+                value=(
+                    "`/spark leaderboard` — Top 10 most-connected members\n"
+                    "`/spark stats` — Server-wide connection statistics"
+                ),
+                inline=False,
+            )
+
+            embed.add_field(
+                name="⚙️ Admin",
+                value=(
+                    "`/spark setup [channel] [admin_role]` — Configure the bot (admin only)\n"
+                    "`/spark admin_stats` — Detailed admin statistics\n"
+                    "`/spark force_pair` — Trigger auto-pairing manually (admin only)"
+                ),
+                inline=False,
+            )
+
+            embed.add_field(
+                name="🔥 Streak System",
+                value=(
+                    "Rate your matches 4+ stars to build a streak!\n"
+                    "Streaks show on the leaderboard and your profile."
+                ),
+                inline=False,
+            )
+
+            embed.add_field(
+                name="🎁 Interest Categories",
+                value=(
+                    "Gaming · Anime · Music · Art · Coding · Movies · Books · Fitness · "
+                    "Cooking · Photography · Travel · Science · Sports · Fashion · Finance · "
+                    "Pets · Writing · Design"
+                ),
+                inline=False,
+            )
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as exc:
+            log.exception("Error in /spark help for user %s: %s", interaction.user.id, exc)
+            await interaction.followup.send(
+                embed=_spark_embed("⚠️ Error", "Something sparked out — try again!", color=COLOR_ERROR),
+                ephemeral=True,
             )
 
 
-async def setup(bot: commands.Bot):
-    """Load cog"""
-    await bot.add_cog(Social(bot))
-    logger.info("Social cog loaded")
+async def setup(bot: commands.Bot) -> None:
+    """Register the SocialCog with the bot."""
+    await bot.add_cog(SocialCog(bot))
