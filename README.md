@@ -1,422 +1,237 @@
 # ⚡ Spark Bot
 
-**Social Matchmaking Discord Bot** — Connect server members who share interests so they actually talk to each other.
+> **Social matchmaking for Discord servers** — connecting members who share interests so they actually talk to each other.
 
-Spark uses AI-powered interest matching to create meaningful connections between Discord members. Every interaction feels rewarding with streaks, leaderboards, and monthly milestone celebrations.
-
----
-
-## 🎯 Features
-
-✨ **Profile System**
-- Custom interests (up to 6 from 18 categories)
-- Bio profiles (max 150 chars)
-- Match history and statistics
-
-🎯 **Matching Engine**
-- On-demand matching with `/spark match`
-- Weekly auto-pairing (configurable day/time)
-- 28-day cooldown to prevent repeat pairs
-- Interest-based compatibility scoring
-
-👥 **Group Creation**
-- Create 3-5 person groups with shared interests
-- Auto-delete channels after 72 hours
-- Perfect for organized conversations
-
-📊 **Engagement Mechanics**
-- Streak system (1-5 star ratings)
-- Leaderboard (top 10 connected members)
-- Monthly milestone celebrations (5, 10, 25+ matches)
-- Server-wide statistics
-
-⏰ **Automation**
-- Daily auto-pairing via APScheduler
-- Consolation messages for unmatched members
-- Weekly summary announcements
+Spark uses interest-based matchmaking, automated daily pairings, streaks, leaderboards, and private group channels to make your Discord server feel alive and magnetic.
 
 ---
 
-## 🚀 Quick Start
+## ✨ Features
 
-### Prerequisites
-- Python 3.10+
-- Discord Server (admin access)
-- Discord Developer Account
-
-### 1. Create Discord Bot
-
-1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
-2. Click "New Application" and name it "Spark"
-3. Go to "Bot" → "Add Bot"
-4. Under TOKEN, click "Copy" (save this!)
-5. Enable these **Intents**:
-   - ✅ Message Content Intent
-   - ✅ Server Members Intent
-   - ✅ Guilds
-   - ✅ Direct Messages
-
-6. Go to "OAuth2" → "URL Generator"
-7. Select scopes: `bot`
-8. Select permissions:
-   - ✅ Send Messages
-   - ✅ Embed Links
-   - ✅ Read Message History
-   - ✅ Mention @everyone
-   - ✅ Manage Channels
-   - ✅ Create Private Channels
-   - ✅ Delete Channels
-9. Copy the generated URL and open it to invite bot to your server
-
-### 2. Deploy to Replit (Recommended for Free Hosting)
-
-1. **Fork this Replit** (or create new Python project)
-2. **Upload files** to your Replit:
-   - `main.py`
-   - `keep_alive.py`
-   - `database.py`
-   - `requirements.txt`
-   - `.env.example`
-   - `cogs/` folder (all 4 cog files)
-
-3. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Add Discord Token**:
-   - Go to Replit "Secrets" (lock icon)
-   - Add key: `DISCORD_TOKEN`
-   - Add value: (paste your bot token)
-
-5. **Run the bot**:
-   ```bash
-   python main.py
-   ```
-
-You should see:
-```
-⚡ Spark Bot is online as Spark#1234
-```
-
-### 3. Set Up UptimeRobot (Keep Bot Alive)
-
-Free Replit tier will put bots to sleep after 1 hour. Use UptimeRobot to keep it alive:
-
-1. Go to [UptimeRobot](https://uptimerobot.com/)
-2. Sign up for free account
-3. Click "Add Monitor"
-4. Select "HTTP(s)"
-5. **Monitor Name**: `Spark Bot`
-6. **URL**: `https://your-replit-url.repl.co/ping`
-7. **Monitoring Interval**: 5 minutes
-8. Click "Create Monitor"
-
-Your bot will now stay online 24/7!
-
-### 4. Configure Spark in Your Server
-
-1. In Discord, run: `/spark setup [channel] [role]`
-   - **[channel]**: Pick the announcement channel (e.g., #announcements)
-   - **[role]**: Pick an admin role (e.g., @Moderators)
-
-2. Bot confirms with setup embed
-
-✅ Spark is now ready!
+- 🎯 **Smart Matching** — Interest overlap scoring (shared / max) × 100
+- 🤝 **Daily Auto-Pairings** — Runs every day at 9 AM IST, no repeats within 4 weeks
+- 👥 **Group Channels** — Temporary private channels for 3-5 members, auto-deleted after 72 hours
+- 🔥 **Streak System** — Rate matches 4+ stars to build your streak, shown on the leaderboard
+- 🏆 **Leaderboard** — Top 10 most-connected members
+- 🎉 **Milestones** — Special DMs at 5, 10, and 25 matches
+- 💬 **Ice-Breaker Questions** — Randomly selected prompts to start the conversation
+- 📊 **Server Stats** — Trending interests, total pairings, average match score
 
 ---
 
-## 📋 All Commands
+## 🚀 Setup on Replit
 
-### Profile Commands
+### 1. Fork the Repl
 
-**`/spark profile`**
-- View your profile card with interests, bio, matches, and streak
+1. Go to [replit.com](https://replit.com) and click **+ Create Repl**
+2. Choose **Import from GitHub** (or paste the project files manually)
+3. Select **Python** as the language
+4. Name it `spark-bot`
 
-**`/spark interests`**
-- Select up to 6 interests from 18 categories
-- Options: Gaming, Anime, Music, Art, Coding, Movies, Books, Fitness, Cooking, Photography, Travel, Science, Sports, Fashion, Finance, Pets, Writing, Design
+### 2. Add Your Bot Token
 
-**`/spark bio [text]`**
-- Set a short bio (max 150 characters)
-- Shows on your profile
+1. In your Replit project, click the **🔒 Secrets** tab (padlock icon in the left sidebar)
+2. Click **+ New Secret**
+3. Key: `DISCORD_TOKEN`
+4. Value: Your Discord bot token (see below for how to create one)
+5. Click **Add Secret**
 
-**`/spark opt [in/out]`**
-- Opt in/out of weekly auto-pairing
-- You can still use `/spark match` manually
+> **Local development:** Copy `.env.example` to `.env` and add your token there.
 
-### Matching Commands
+### 3. Create a Discord Application & Bot
 
-**`/spark match`**
-- Find your next connection right now
-- DMs both users introduction with shared interests
-- Ice-breaker question to start conversation
-- 24-hour cooldown per user per server
+1. Go to [discord.com/developers/applications](https://discord.com/developers/applications)
+2. Click **New Application** → name it `Spark`
+3. Go to **Bot** tab → click **Add Bot**
+4. Under **Token**, click **Reset Token** and copy it → paste into Replit Secrets
+5. Under **Privileged Gateway Intents**, enable:
+   - **Presence Intent**
+   - **Server Members Intent**
+   - **Message Content Intent**
+6. Click **Save Changes**
 
-**`/spark group`**
-- Create a 3-5 person group with highest interest overlap
-- Auto-creates private Discord channel
-- Channel auto-deletes after 72 hours
+### 4. Invite the Bot to Your Server
 
-**`/spark history`**
-- View your last 5 pairings
-- Shows match scores and dates
-
-**`/spark rate [1-5]`**
-- Rate your last match 1-5 stars
-- Ratings 4+ increase your streak 🔥
-- Track pairing satisfaction
-
-### Social Commands
-
-**`/spark leaderboard`**
-- Top 10 most-connected members
-- Shows total matches and current streak
-- 🥇🥈🥉 medals for top 3
-
-**`/spark stats`**
-- Server-wide statistics:
-  - Total registered members
-  - Total pairings made
-  - Average match score
-  - Most popular interest
-
-**`/spark help`**
-- Show all commands with descriptions
-- Getting started guide
-
-### Admin Commands
-
-**`/spark setup [channel] [role]`** *(admin only)*
-- Configure announcement channel
-- Set admin role
-- Schedule weekly pairing (default: Monday 9 AM GMT+5:30)
-
----
-
-## 🎯 How Matching Works
-
-### Interest Matching Algorithm
+Use this URL (replace `YOUR_CLIENT_ID` with your application's Client ID from the **General Information** tab):
 
 ```
-Match Score = (Shared Interests / Max Possible) × 100
+https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=8&scope=bot%20applications.commands
 ```
 
-**Example:**
-- User A: Gaming, Anime, Music
-- User B: Gaming, Anime, Design
-
-Shared: 2 (Gaming, Anime)
-Max Possible: 3
-**Score: (2/3) × 100 = 66.7%**
-
-### Daily Auto-Pairing
-
-Every Monday at 9:00 AM (configurable):
-1. Fetches 100 most active members (opt-in only)
-2. Runs greedy pairing algorithm
-3. Skips pairs matched in last 28 days
-4. DMs each pair with intro, shared interests, ice-breaker
-5. Posts summary in announcement channel
-6. Sends consolation messages to unmatched members
-
-### On-Demand Matching
-
-Use `/spark match` anytime to:
-- Get instant match with best compatibility
-- 24-hour cooldown (prevents spam)
-- Logs to pairing history
-
----
-
-## 🎮 Engagement Features
-
-### Streak System 🔥
-- Rate matches 4+ stars to maintain streak
-- Streak resets on rating < 4 stars
-- Shows on `/spark leaderboard`
-
-### Milestones
-Automatic celebrations when you hit:
-- 5 matches 🎉
-- 10 matches 🏆
-- 25 matches ⭐
-
-### First-Match Celebration
-New users get special DM after their first pairing
-
-### Weekly Summary
-Bot announces in pairing channel:
-- How many matches were made
-- How many members remain unmatched
-
----
-
-## 🗄️ Database Schema
-
-**SQLite Database** (`spark.db`)
-
-**members**
-- `user_id` - Discord ID
-- `guild_id` - Server ID
-- `display_name` - Username
-- `interests` - JSON array of interests
-- `bio` - Short description
-- `opt_in` - Participation status
-- `joined_at` - Registration date
-- `total_matches` - Lifetime connections
-- `streak` - Current 🔥 streak
-
-**pairings**
-- `id` - Unique pairing ID
-- `guild_id` - Server ID
-- `user1_id`, `user2_id` - Connected users
-- `paired_at` - Timestamp
-- `match_score` - Compatibility %
-- `user1_rated`, `user2_rated` - Star ratings
-
-**groups**
-- `id` - Group ID
-- `guild_id` - Server ID
-- `member_ids` - JSON array of 3-5 users
-- `interests` - Shared interests
-- `created_at` - Timestamp
-
-**server_config**
-- `guild_id` - Server ID
-- `pairing_channel_id` - Announcement channel
-- `pairing_day` - Day for auto-pairing
-- `pairing_hour` - Hour for auto-pairing
-- `admin_role_id` - Required role
-
----
-
-## 🛠️ Development
-
-### Local Setup
-
-1. Clone repo
-2. Create `.env`:
-   ```
-   DISCORD_TOKEN=your_token_here
-   ```
-
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Run locally:
-   ```bash
-   python main.py
-   ```
-
-### File Structure
-
-```
-spark-bot/
-├── main.py              # Bot entry point
-├── keep_alive.py        # Flask server (Replit)
-├── database.py          # Async SQLite wrapper
-├── requirements.txt     # Dependencies
-├── .env.example         # Environment template
-├── README.md            # This file
-└── cogs/
-    ├── profile.py       # Profile management
-    ├── matching.py      # Matching engine
-    ├── social.py        # Leaderboard & stats
-    └── admin.py         # Setup & scheduler
-```
-
-### Adding New Interests
-
-Edit interest list in `cogs/profile.py`:
-```python
-INTERESTS = [
-    "Gaming", "Anime", "Music", "Art", ...
-]
-```
-
-### Customizing Pairing Schedule
-
-Edit in `cogs/admin.py` or use future admin command:
-```python
-pairing_day = 'friday'    # 'monday', 'tuesday', etc.
-pairing_hour = 17         # 0-23 (24-hour format)
-```
-
----
-
-## 🐛 Troubleshooting
-
-**Bot not responding?**
-- Check Discord token is correct in Secrets
-- Verify bot has "Send Messages" permission
-- Try restarting bot in Replit
-
-**`/spark match` says "not enough members"?**
-- Need at least 2 members with interests set
-- Both must have `/spark interests` filled
-
-**Pairing channel missing?**
-- Run `/spark setup` again
-- Verify bot has "Send Messages" in that channel
-
-**UptimeRobot not working?**
-- Copy exact Replit URL from browser (with .repl.co)
-- Check URL ends with `/ping`
-- Verify monitor is "Up" in UptimeRobot dashboard
-
----
-
-## 📊 Stats & Metrics
-
-Track these via `/spark stats`:
-- 👥 Total members registered
-- 🔗 Total pairings made
-- 💡 Average match score
-- 🎮 Most popular interest
-
----
-
-## 🔐 Permissions Required
-
-Spark requires these Discord permissions:
+**Required permissions:**
 - Send Messages
 - Embed Links
 - Read Message History
-- Manage Channels (for group creation/deletion)
-- Create Private Channels
-- Delete Channels
+- Manage Channels (for `/spark group` private channels)
+- Use Slash Commands
+- Add Reactions
 
-Grant via OAuth2 URL Generator when inviting.
+> Using `permissions=8` (Administrator) is the easiest during setup. Tighten permissions in production.
 
----
+### 5. Run the Bot
 
-## 📝 License
+In Replit, click the **▶ Run** button. You should see:
 
-Spark Bot is open source. Use freely in your Discord servers!
+```
+⚡  Spark Bot is online!
+User : Spark#1234 (123456789)
+Guilds: 1
+```
 
----
-
-## 🙌 Support
-
-For issues or feature requests, open an issue or reach out!
-
-**Made with ⚡ by Spark Team**
+Slash commands may take up to **1 hour** to propagate globally. For instant sync during development, use guild-specific sync (see advanced config below).
 
 ---
 
-## 🚀 Future Features
+## 🕐 Keeping the Bot Alive (UptimeRobot)
 
-- [ ] Custom interest categories per server
-- [ ] Match feedback (why were we paired?)
-- [ ] Interest discovery recommendations
-- [ ] Pairing notifications (ping notifications)
-- [ ] Web dashboard
-- [ ] Demographic matching options
-- [ ] Activity-based matching improvements
+Replit free-tier Repls sleep after inactivity. Spark includes a lightweight Flask server on **port 8080** to prevent this.
+
+### Set up UptimeRobot
+
+1. Sign up at [uptimerobot.com](https://uptimerobot.com) (free)
+2. Click **+ Add New Monitor**
+3. Monitor Type: **HTTP(s)**
+4. Friendly Name: `Spark Bot`
+5. URL: `https://YOUR-REPL-NAME.YOUR-USERNAME.repl.co` (copy from the Replit webview)
+6. Monitoring Interval: **5 minutes**
+7. Click **Create Monitor**
+
+UptimeRobot will ping your bot every 5 minutes, keeping it awake.
 
 ---
 
-Enjoy connecting your Discord community! ⚡
+## ⏰ Configuring the Pairing Schedule
+
+Daily auto-pairings run at **9:00 AM IST (GMT+5:30)** by default.
+
+To change the schedule, edit `cogs/matching.py`:
+
+```python
+self.scheduler.add_job(
+    self._auto_pair_all_guilds,
+    CronTrigger(hour=9, minute=0, timezone="Asia/Kolkata"),  # ← Edit here
+    id="daily_auto_pair",
+    replace_existing=True,
+)
+```
+
+Valid timezone strings follow [IANA tz database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) format (e.g. `America/New_York`, `Europe/London`, `UTC`).
+
+---
+
+## ⚙️ First-Time Server Configuration
+
+After inviting the bot, an admin must run:
+
+```
+/spark setup channel:#your-pairing-channel admin_role:@YourAdminRole
+```
+
+This stores the announcement channel and admin role. A welcome message is posted in the channel.
+
+---
+
+## 📋 All Slash Commands
+
+### 👤 Profile
+
+| Command | Description |
+|---------|-------------|
+| `/spark profile` | View your Spark profile card |
+| `/spark interests` | Set your interests (pick up to 6 from 18 categories) |
+| `/spark bio [text]` | Set a short bio (max 150 chars) |
+| `/spark opt [in/out]` | Toggle weekly pairing participation |
+| `/spark history` | View your last 5 pairings with dates and scores |
+
+### 🤝 Matching
+
+| Command | Description |
+|---------|-------------|
+| `/spark match` | Find your best match right now (24-hour cooldown) |
+| `/spark group` | Create a group of 3-5 members with shared interests |
+| `/spark rate [1-5]` | Rate your latest match experience (4+ builds your streak) |
+
+### 📊 Social
+
+| Command | Description |
+|---------|-------------|
+| `/spark leaderboard` | Top 10 most-connected members with streaks |
+| `/spark stats` | Server-wide stats: members, pairings, trending interests |
+| `/spark help` | Full command reference |
+
+### ⚙️ Admin
+
+| Command | Description |
+|---------|-------------|
+| `/spark setup [channel] [admin_role]` | Configure the bot (requires Administrator) |
+| `/spark admin_stats` | Detailed admin view with full interest breakdown |
+| `/spark force_pair` | Manually trigger the auto-pairing job right now |
+
+---
+
+## 🎯 Interest Categories
+
+Users pick up to 6 from these 18 categories:
+
+Gaming · Anime · Music · Art · Coding · Movies · Books · Fitness · Cooking · Photography · Travel · Science · Sports · Fashion · Finance · Pets · Writing · Design
+
+---
+
+## 🔥 Streak System
+
+- Rate a match **4 or 5 stars** → streak increments by 1
+- Rate **1-3 stars** → streak resets to 0
+- Streak is shown on your profile (`🔥 × N`) and the leaderboard
+- Consecutive high-rated weeks = longer streak
+
+---
+
+## 🏗 Project Structure
+
+```
+spark-bot/
+├── main.py          ← Entry point; bot class, startup, cog loading
+├── keep_alive.py    ← Flask server for Replit/UptimeRobot
+├── database.py      ← All async SQLite helpers (aiosqlite)
+├── requirements.txt ← Pinned dependencies
+├── .env.example     ← Environment variable template
+├── spark.db         ← Created automatically on first run
+└── cogs/
+    ├── profile.py   ← /profile, /interests, /bio, /opt, /history
+    ├── matching.py  ← /match, /group, /rate + APScheduler job
+    ├── social.py    ← /leaderboard, /stats, /help
+    └── admin.py     ← /setup, /admin_stats, /force_pair
+```
+
+---
+
+## 🛠 Local Development
+
+```bash
+# Clone or download the project
+cd spark-bot
+
+# Create a virtual environment
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy and fill in your token
+cp .env.example .env
+# Edit .env and add your DISCORD_TOKEN
+
+# Run the bot
+python main.py
+```
+
+---
+
+## 📄 License
+
+MIT — use freely, attribution appreciated.
+
+---
+
+*Built with ❤️ and discord.py · ⚡ Spark Bot v1.0.0*
