@@ -54,8 +54,9 @@ https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=8&
 ### 3. 🛠 Local Development
 
 ```bash
-# Clone or download the project
-cd spark-bot
+# Clone the project
+git clone https://github.com/DMONINK/Spark-Discord-Bot.git
+cd spark-bot  # Now navigate into the cloned folder
 
 # Create a virtual environment
 python -m venv venv
