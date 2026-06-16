@@ -19,28 +19,26 @@ Spark uses interest-based matchmaking, automated daily pairings, streaks, leader
 
 ---
 
-## How It Works
+## Matching (How it works)
+- Interest-based — if both users have interests set, scored by overlap percentage
+Gender-based — if no interests, pairs Male ↔ Female detected from roles, nickname, and global name
 
-Spark uses a two-tier matching system:
-- **Interests set** → matches by highest interest overlap score
-- **No interests** → detects gender from roles, display name, and bio → pairs Male ↔ Female
+**Gender detection scans 600+ keywords** across roles (double weighted), display names, and Discord bios — covering pronouns, titles, slang, anime archetypes, mythology, emoji symbols, and more.
+
+## Daily auto-pair 
+- runs every day at 9:00 AM IST; consolation DM sent to anyone unmatched
+
+## Match announcements
+- When /spark match runs, the configured channel receives an embed that @mentions both matched users by name, shows the compatibility score or match mode, and lists any shared interests. The daily auto-pair summary lists every pair as @User1 × @User2 so the whole server can see who connected.
+
+## DM delivery
+- DMs are sent to both the requester and their partner. User resolution uses the guild member cache first (always populated with Intents.all()), falling back to the bot's user cache and finally an API fetch — so partner DMs are never silently dropped.
 
 ---
 
-## Matching Logic
-
-**Priority order for every match command:**
-
-1. **Both users have interests** → interest overlap score `(shared / max) × 100`
-2. **No interests** → gender detected from server roles, display name, and bio → Male ↔ Female only
-3. **Gender unknown** → prompts user to add a gender role or set interests
-
-**Auto-pairing runs in two phases:**
-- Phase 1: all members with interests → greedy interest pairing
-- Phase 2: remaining unmatched members → gender-based pairing
-- Still unmatched → consolation DM with next steps
-
-**Gender detection scans 600+ keywords** across roles (double weighted), display names, and Discord bios — covering pronouns, titles, slang, anime archetypes, mythology, emoji symbols, and more.
+## Member registration
+- On startup (on_ready), Spark loops through every guild via fetch_members(limit=None) and upserts all non-bot members into spark.db. This means the full member pool is available for gender-based matching immediately after a restart — no one needs to run a command first.
+New members are registered automatically the moment they join via on_member_join.
 
 ---
 
