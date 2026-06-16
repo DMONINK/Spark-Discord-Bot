@@ -11,6 +11,7 @@ import os
 import sys
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -84,7 +85,9 @@ class SparkBot(commands.Bot):
     async def on_ready(self) -> None:
         """
         Fired when the bot has connected and is ready.
-        Syncs application (slash) commands globally.
+        Syncs slash commands globally and auto-registers all existing
+        guild members so they are immediately eligible for matching
+        without needing to run a command first.
         """
         log.info("Logged in as %s (ID: %s)", self.user, self.user.id)
 
@@ -101,11 +104,39 @@ class SparkBot(commands.Bot):
                 name="for ⚡ /spark match",
             )
         )
+
+        # Auto-register every human member across all guilds so the
+        # gender-based matching pool is populated immediately on startup.
+        total_registered = 0
+        for guild in self.guilds:
+            try:
+                async for member in guild.fetch_members(limit=None):
+                    if member.bot:
+                        continue
+                    await db.upsert_member(
+                        str(member.id),
+                        str(guild.id),
+                        member.display_name,
+                    )
+                    total_registered += 1
+            except Exception as exc:
+                log.warning("Could not fetch members for guild %s: %s", guild.id, exc)
+
+        log.info("Auto-registered %d members across %d guild(s).", total_registered, len(self.guilds))
+
         print(f"\n{'='*50}")
         print(f"  ⚡  Spark Bot is online!")
         print(f"  User : {self.user} ({self.user.id})")
         print(f"  Guilds: {len(self.guilds)}")
+        print(f"  Members registered: {total_registered}")
         print(f"{'='*50}\n")
+
+    async def on_member_join(self, member: discord.Member) -> None:
+        """Auto-register any new member who joins a guild."""
+        if member.bot:
+            return
+        await db.upsert_member(str(member.id), str(member.guild.id), member.display_name)
+        log.info("Auto-registered new member %s in guild %s.", member.id, member.guild.id)
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
         """Greet the server when the bot is added."""
