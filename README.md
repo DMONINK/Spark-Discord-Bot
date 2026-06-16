@@ -19,6 +19,31 @@ Spark uses interest-based matchmaking, automated daily pairings, streaks, leader
 
 ---
 
+## How It Works
+
+Spark uses a two-tier matching system:
+- **Interests set** → matches by highest interest overlap score
+- **No interests** → detects gender from roles, display name, and bio → pairs Male ↔ Female
+
+---
+
+## Matching Logic
+
+**Priority order for every match command:**
+
+1. **Both users have interests** → interest overlap score `(shared / max) × 100`
+2. **No interests** → gender detected from server roles, display name, and bio → Male ↔ Female only
+3. **Gender unknown** → prompts user to add a gender role or set interests
+
+**Auto-pairing runs in two phases:**
+- Phase 1: all members with interests → greedy interest pairing
+- Phase 2: remaining unmatched members → gender-based pairing
+- Still unmatched → consolation DM with next steps
+
+**Gender detection scans 600+ keywords** across roles (double weighted), display names, and Discord bios — covering pronouns, titles, slang, anime archetypes, mythology, emoji symbols, and more.
+
+---
+
 ## 🚀 Setup
 
 ### 1. Create a Discord Application & Bot
