@@ -431,11 +431,17 @@ async def _send_match_dm(
     shared: list[str],
     pairing_id: int,
     match_mode: str = "interests",  # "interests" | "gender" | "random"
+    guild: Optional[discord.Guild] = None,
 ) -> None:
     """
     DM both users an introduction embed.
     match_mode controls the description copy shown in the embed.
     Also sends first-match celebration and milestone DMs.
+
+    guild is preferred for member resolution because guild.get_member()
+    is always populated when Intents.members is enabled, while
+    bot.get_user() only covers users the bot has seen in DMs or other
+    cached guilds -- meaning the partner's DM could silently be dropped.
     """
     icebreaker = random.choice(ICEBREAKERS)
 
@@ -449,15 +455,30 @@ async def _send_match_dm(
     else:
         basis_line = "🌐 **Matched by:** Community discovery — say hello!"
 
-    for primary, other in [(user_a, user_b), (user_b, user_a)]:
-        discord_user = bot.get_user(int(primary["user_id"]))
-        if discord_user is None:
-            try:
-                discord_user = await bot.fetch_user(int(primary["user_id"]))
-            except discord.NotFound:
-                continue
+    async def _resolve(uid: int) -> Optional[discord.User]:
+        """Guild member cache -> bot cache -> API fetch (in that order)."""
+        if guild:
+            member = guild.get_member(uid)
+            if member:
+                return member
+        cached = bot.get_user(uid)
+        if cached:
+            return cached
+        try:
+            return await bot.fetch_user(uid)
+        except (discord.NotFound, discord.HTTPException):
+            return None
 
-        other_discord = bot.get_user(int(other["user_id"]))
+    for primary, other in [(user_a, user_b), (user_b, user_a)]:
+        discord_user = await _resolve(int(primary["user_id"]))
+        if discord_user is None:
+            log.warning(
+                "Could not resolve Discord user %s -- DM skipped (pairing %d).",
+                primary["user_id"], pairing_id,
+            )
+            continue
+
+        other_discord = await _resolve(int(other["user_id"]))
         other_name = other_discord.display_name if other_discord else other["display_name"]
         other_bio = other["bio"] or "_No bio set yet._"
 
@@ -615,6 +636,7 @@ class MatchingCog(commands.Cog, name="Matching"):
         recent_pairs = await db.get_recent_pairs(str(guild.id), weeks=4)
         matched_ids: set[str] = set()
         matched_count = 0
+        _paired_ids: list[tuple[str, str]] = []  # for channel summary
 
         # ── Phase 1: interest-based pairing ───────────────────────────────────
         interest_members = [m for m in all_members if _has_interests(m)]
@@ -622,11 +644,12 @@ class MatchingCog(commands.Cog, name="Matching"):
             pairs = _run_greedy_pairing(interest_members, recent_pairs)
             for m1, m2, score, shared in pairs:
                 pairing_id = await db.log_pairing(str(guild.id), m1["user_id"], m2["user_id"], score)
-                await _send_match_dm(self.bot, m1, m2, score, shared, pairing_id, match_mode="interests")
+                await _send_match_dm(self.bot, m1, m2, score, shared, pairing_id, match_mode="interests", guild=guild)
                 await db.increment_total_matches(m1["user_id"])
                 await db.increment_total_matches(m2["user_id"])
                 matched_ids.add(m1["user_id"])
                 matched_ids.add(m2["user_id"])
+                _paired_ids.append((m1["user_id"], m2["user_id"]))
                 matched_count += 1
                 await asyncio.sleep(0.5)
 
@@ -641,11 +664,12 @@ class MatchingCog(commands.Cog, name="Matching"):
             gender_pairs = _gender_greedy_pairing(males, females, recent_pairs)
             for m1, m2, score, shared in gender_pairs:
                 pairing_id = await db.log_pairing(str(guild.id), m1["user_id"], m2["user_id"], score)
-                await _send_match_dm(self.bot, m1, m2, score, shared, pairing_id, match_mode="gender")
+                await _send_match_dm(self.bot, m1, m2, score, shared, pairing_id, match_mode="gender", guild=guild)
                 await db.increment_total_matches(m1["user_id"])
                 await db.increment_total_matches(m2["user_id"])
                 matched_ids.add(m1["user_id"])
                 matched_ids.add(m2["user_id"])
+                _paired_ids.append((m1["user_id"], m2["user_id"]))
                 matched_count += 1
                 await asyncio.sleep(0.5)
 
@@ -669,9 +693,14 @@ class MatchingCog(commands.Cog, name="Matching"):
         # ── Summary in pairing channel ────────────────────────────────────────
         channel = guild.get_channel(int(config["pairing_channel_id"]))
         if channel and isinstance(channel, discord.TextChannel):
+            pair_lines = "\n".join(
+                f"<@{uid1}> × <@{uid2}>"
+                for uid1, uid2 in _paired_ids
+            )
             summary = _spark_embed(
                 "⚡ Daily Spark Pairings!",
                 f"Today **{matched_count * 2} members** were matched into **{matched_count} pairs**! 🎉\n\n"
+                f"{pair_lines}\n\n"
                 f"Check your DMs for your introduction.\n"
                 f"Use `/spark match` to find more connections anytime!",
                 color=COLOR_SUCCESS,
@@ -775,7 +804,7 @@ class MatchingCog(commands.Cog, name="Matching"):
             await db.increment_total_matches(partner["user_id"])
             _match_cooldowns[str(user.id)] = datetime.now(timezone.utc)
 
-            await _send_match_dm(self.bot, target, partner, score, shared, pairing_id, match_mode)
+            await _send_match_dm(self.bot, target, partner, score, shared, pairing_id, match_mode, guild=guild)
 
             partner_discord = self.bot.get_user(int(partner["user_id"]))
             partner_name = partner_discord.display_name if partner_discord else partner["display_name"]
@@ -789,14 +818,31 @@ class MatchingCog(commands.Cog, name="Matching"):
             )
             await interaction.followup.send(embed=confirm, ephemeral=True)
 
-            # Subtle announcement
+            # Announcement in the pairing channel — show who was matched
             if config.get("pairing_channel_id"):
                 ch = guild.get_channel(int(config["pairing_channel_id"]))
                 if ch and isinstance(ch, discord.TextChannel):
                     try:
+                        requester_mention = user.mention
+                        partner_mention = (
+                            f"<@{partner['user_id']}>"
+                        )
+                        if shared:
+                            shared_tags = " ".join(
+                                f"{INTEREST_EMOJIS.get(i, '⭐')} **{i}**" for i in shared
+                            )
+                            basis = f"They share: {shared_tags}"
+                        elif match_mode == "gender":
+                            basis = "Matched by opposite vibes 💫"
+                        else:
+                            basis = "Community discovery 🌐"
+
+                        score_str_ch = f"`{score:.1f}%`" if match_mode == "interests" else "`✨ New Connection`"
                         await ch.send(embed=_spark_embed(
-                            "⚡ Two members just connected!",
-                            "Use `/spark match` to find your person! 🔥",
+                            "⚡ A New Spark Connection!",
+                            f"{requester_mention} and {partner_mention} just matched! ({score_str_ch})\n"
+                            f"{basis}\n\n"
+                            f"Check your DMs for the introduction. Use `/spark match` to find your person! 🔥",
                             color=COLOR_INFO,
                         ))
                     except discord.Forbidden:
