@@ -1,4 +1,4 @@
-# ⚡ Spark Bot 2.0
+# ⚡ Spark Bot 2.1
 
 > **Social matchmaking for Discord servers** — connecting members who share interests so they actually talk to each other.
 
